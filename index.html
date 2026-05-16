@@ -1,0 +1,1372 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>IntelBeyond | Asset Maintenance Intelligence</title>
+<!--
+  ╔══════════════════════════════════════════════════════════════╗
+  ║  IntelBeyond:Asset Maintenance Intelligence Platform       ║
+  ║                                                              ║
+  ║  CREDENTIALS : Edit the CREDENTIALS array below             ║
+  ║  HOSTING     : Drag this file to netlify.com/drop           ║
+  ║                → get a free shareable URL instantly          ║
+  ╚══════════════════════════════════════════════════════════════╝
+-->
+<script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/exceljs@4.3.0/dist/exceljs.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;background:#f0f4fb;min-height:100vh;color:#1a1a1a;}
+button,input{font-family:inherit;}
+::-webkit-scrollbar{width:6px;}::-webkit-scrollbar-thumb{background:#ccc;border-radius:3px;}
+.btn{display:inline-flex;align-items:center;gap:6px;padding:8px 16px;border:none;border-radius:7px;font-size:13px;font-weight:600;cursor:pointer;transition:opacity .15s;white-space:nowrap;}
+.btn:hover{opacity:.85;}.btn:disabled{opacity:.5;cursor:not-allowed;}
+.btn-primary{background:#0052FF;color:#fff;}.btn-outline{background:#fff;color:#0052FF;border:1.5px solid #0052FF;}
+.btn-ghost{background:rgba(255,255,255,.15);color:#fff;border:1px solid rgba(255,255,255,.4);}
+.btn-white{background:#fff;color:#0052FF;}
+input[type=text],input[type=password]{width:100%;padding:10px 14px;border:1.5px solid #ddd;border-radius:8px;font-size:14px;outline:none;transition:border-color .15s;}
+input[type=text]:focus,input[type=password]:focus{border-color:#0052FF;}
+.card{background:#fff;border-radius:12px;border:1px solid #e5e5e5;padding:1.25rem;}
+@media(max-width:700px){
+  .app-header{height:auto!important;padding:.5rem .75rem!important;row-gap:6px;}
+  .app-main{padding:1rem .75rem!important;}
+  .kpi-grid{grid-template-columns:repeat(3,1fr)!important;}
+  .detail-wom{grid-template-columns:repeat(2,1fr)!important;}
+  .wo-dist-grid{grid-template-columns:1fr!important;}
+  .btn{padding:6px 10px!important;font-size:11px!important;}
+}
+@media(max-width:420px){
+  .kpi-grid{grid-template-columns:repeat(2,1fr)!important;}
+  .btn{padding:5px 8px!important;font-size:10px!important;}
+}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const{useState,useMemo,useRef,useEffect}=React;
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// CREDENTIALS:add one object per customer, share URL + their username/password
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+const CREDENTIALS=[
+  {username:"demo",   password:"IntelBeyond25", name:"Demo Account"},
+  {username:"ridley", password:"Ridley2025",     name:"Ridley Corp"},
+  // {username:"veolia", password:"Veolia2025",  name:"Veolia"},
+];
+
+// ── Score config ─────────────────────────────────────────────────────────────
+const SKEYS=["critical","ineffective","poor","balanced","optimized","overkill"];
+const SCORE_ORDER={critical:0,ineffective:1,poor:2,balanced:3,optimized:4,overkill:5};
+const SM={
+  critical:   {label:"Critical",     desc:"High BM, low planned. Reactive fire-fighting.",                     bg:"#B91C1C",text:"#fff"},
+  ineffective:{label:"Ineffective",  desc:"High BM despite high planned. Planned work not preventing failures.",bg:"#A16207",text:"#fff"},
+  poor:       {label:"Poor",         desc:"Moderate BM. Planned maintenance lagging.",                         bg:"#BE185D",text:"#fff"},
+  balanced:   {label:"Balanced",     desc:"Acceptable mix of planned and reactive work.",                       bg:"#1D4ED8",text:"#fff"},
+  optimized:  {label:"Optimized",    desc:"Low BM, high planned. Target operating state.",                    bg:"#15803D",text:"#fff"},
+  overkill:   {label:"Excessive",    desc:"Near-zero BM, excessive planned. Review intervals.",                bg:"#4B5563",text:"#fff"},
+};
+const WOM=[
+  {key:"pm",label:"PM",full:"Preventive maintenance",    color:"#16A34A"},
+  {key:"bm",label:"BM",full:"Breakdown maintenance",     color:"#DC2626"},
+  {key:"cm",label:"CM",full:"Condition-based maintenance",color:"#2563EB"},
+  {key:"im",label:"IM",full:"Inspection maintenance",    color:"#D97706"},
+];
+const GC={
+  critical:   {from:[127,29,29],   to:[254,180,180]},
+  ineffective:{from:[133,77,14],   to:[254,240,138]},
+  poor:       {from:[131,24,67],   to:[251,170,199]},
+  balanced:   {from:[30,64,175],   to:[165,195,250]},
+  optimized:  {from:[150,230,170], to:[20,100,50]},
+  overkill:   {from:[175,185,195], to:[55,65,81]},
+};
+
+// ── Dummy data ───────────────────────────────────────────────────────────────
+const LINE_DEFS=[
+  {id:"L1",name:"Line 1",desc:"Assembly",   count:40,profile:"mixed"    },
+  {id:"L2",name:"Line 2",desc:"Packaging",  count:50,profile:"critical" },
+  {id:"L3",name:"Line 3",desc:"Processing", count:70,profile:"optimized"},
+  {id:"L4",name:"Line 4",desc:"Utilities",  count:90,profile:"overkill" },
+  {id:"L5",name:"Line 5",desc:"Warehouse",  count:60,profile:"poor"     },
+];
+const PROFILE_W={
+  mixed:    [0.15,0.20,0.30,0.25,0.10],
+  critical: [0.45,0.25,0.15,0.10,0.05],
+  optimized:[0.04,0.07,0.19,0.60,0.10],
+  overkill: [0.05,0.10,0.15,0.30,0.40],
+  poor:     [0.30,0.40,0.20,0.08,0.02],
+};
+const WOR={
+  critical: [[6,12],[0,2],[0,2],[0,1]],
+  poor:     [[2,5], [1,4],[0,3],[0,2]],
+  balanced: [[1,3], [3,7],[1,3],[1,3]],
+  optimized:[[0,1], [5,10],[2,4],[1,3]],
+  overkill: [[0,0], [9,16],[3,6],[2,5]],
+};
+const PROFILE_SKEYS=["critical","poor","balanced","optimized","overkill"];
+function makeRng(seed){let s=seed>>>0||1;return()=>{s^=s<<13;s^=s>>17;s^=s<<5;return(s>>>0)/4294967296;};}
+function pickScore(w,r){let c=0;for(let i=0;i<w.length;i++){c+=w[i];if(r<c)return PROFILE_SKEYS[i];}return"balanced";}
+function ri([a,b],r){return a+Math.floor(r*(b-a+1));}
+function buildDummyLines(){
+  const rng=makeRng(42);
+  return LINE_DEFS.map(def=>{
+    const assets=Array.from({length:def.count},(_,i)=>{
+      const profile=pickScore(PROFILE_W[def.profile],rng());
+      const [bmr,pmr,cmr,imr]=WOR[profile];
+      const bm=ri(bmr,rng()),pm=ri(pmr,rng()),cm=ri(cmr,rng()),im=ri(imr,rng());
+      return{line:`${def.name}: ${def.desc}`,assetId:`${def.id}-${String(i+1).padStart(3,"0")}`,desc:"",pm,bm,cm,im};
+    });
+    const lineName=`${def.name}: ${def.desc}`;
+    return{id:def.id.toLowerCase(),name:lineName,count:def.count,assets};
+  });}
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+const lerp=(a,b,t)=>Math.round(a+(b-a)*t);
+const rgbHex=([r,g,b])=>"#"+[r,g,b].map(x=>x.toString(16).padStart(2,"0")).join("");
+function getColor(score,idx,size){const{from,to}=GC[score];const t=size>1?idx/(size-1):0;
+  return rgbHex([lerp(from[0],to[0],t),lerp(from[1],to[1],t),lerp(from[2],to[2],t)]);}
+
+const DEFAULT_THRESHOLDS={criticalBM:40,ineffectiveBM:25,ineffectivePlanned:50,poorBM:20,optimizedBM:12,optimizedPlanned:60,excessiveBM:5,excessivePlanned:85};
+function classifyAssetT(bm,total,planned,t){
+  if(!total)return"balanced";const br=bm/total,pr=planned/total;
+  if(br>=t.criticalBM/100)return"critical";
+  if(br>=t.ineffectiveBM/100&&pr>t.ineffectivePlanned/100)return"ineffective";
+  if(br>=t.poorBM/100)return"poor";
+  if(br<t.excessiveBM/100&&pr>t.excessivePlanned/100)return"overkill";
+  if(br<t.optimizedBM/100&&pr>t.optimizedPlanned/100)return"optimized";
+  return"balanced";}
+function reclassifyLines(rawLines,t){
+  return rawLines.map(line=>{
+    const proc=line.assets.map(a=>{
+      const total=a.pm+a.bm+a.cm+a.im,pl=a.pm+a.cm+a.im;
+      const score=classifyAssetT(a.bm,total,pl,t);
+      return{...a,total,score,bmRatio:total?a.bm/total:0,plannedRatio:total?pl/total:0};
+    });
+    const DESC=new Set(["critical","ineffective","poor"]);
+    proc.sort((a,b)=>SCORE_ORDER[a.score]-SCORE_ORDER[b.score]||(DESC.has(a.score)?b.bmRatio-a.bmRatio:a.bmRatio-b.bmRatio));
+    const sizes={};proc.forEach(a=>{sizes[a.score]=(sizes[a.score]||0)+1;});
+    const cnt={};
+    return{...line,count:proc.length,
+      assets:proc.map(a=>{const i=cnt[a.score]||0;cnt[a.score]=i+1;return{...a,groupIdx:i,groupSize:sizes[a.score]};})};
+  });}
+
+function calcStats(assets){
+  const counts=Object.fromEntries(SKEYS.map(k=>[k,0]));
+  let tw=0,tb=0,tp=0,tc=0,ti=0;
+  assets.forEach(a=>{counts[a.score]++;tw+=a.total;tb+=a.bm;tp+=a.pm;tc+=a.cm;ti+=a.im;});
+  return{counts,totalWO:tw,totalBM:tb,totalPM:tp,totalCM:tc,totalIM:ti,total:assets.length};}
+
+// ── Excel: Demo data download ─────────────────────────────────────────────────
+function downloadDemoData(){
+  const raw=buildDummyLines();
+  const wb=XLSX.utils.book_new();
+  const hdrs=[["Production Line","Asset ID","Asset Description","PM Count","BM Count","CM Count","IM Count"]];
+  const rows=raw.flatMap(l=>l.assets.map(a=>[l.name,a.assetId,a.desc||"",a.pm,a.bm,a.cm,a.im]));
+  const ws=XLSX.utils.aoa_to_sheet([...hdrs,...rows]);
+  ws["!cols"]=[{wch:24},{wch:12},{wch:28},{wch:10},{wch:10},{wch:10},{wch:10},{wch:32}];
+  ws["!freeze"]={xSplit:0,ySplit:1};
+  XLSX.utils.book_append_sheet(wb,ws,"Asset Data");
+  XLSX.writeFile(wb,"IntelBeyond_Demo_Data.xlsx");}
+
+// ── Excel: Template ───────────────────────────────────────────────────────────
+function downloadTemplate(){
+  const wb=XLSX.utils.book_new();
+  const instr=[
+    ["IntelBeyond: Asset Maintenance Data Template"],[""],
+    ["INSTRUCTIONS: read before filling in the Asset Data sheet"],[""],
+    ["Column","Description"],
+    ["Production Line","The name of the production line this asset belongs to"],
+    ["Asset ID","Unique identifier for the asset (e.g. L1-001)"],
+    ["Asset Description","Short description of the asset (optional)"],
+    ["PM Count","Number of Preventive Maintenance work orders"],
+    ["BM Count","Number of Breakdown Maintenance work orders"],
+    ["CM Count","Number of Condition-based Maintenance work orders"],
+    ["IM Count","Number of Inspection Maintenance work orders"],
+    [""],
+    ["CLASSIFICATION THRESHOLDS"],
+    ["Critical","BM >= 40% of total WOs. High reactive burden, immediate action needed."],
+    ["Ineffective","BM >= 25% AND Planned >= 50%. High planned work not preventing breakdowns."],
+    ["Poor","BM 20-40%. Planned work not keeping pace with failures."],
+    ["Balanced","BM 10-20%. Reasonable mix, monitor for drift."],
+    ["Optimized","BM < 12% AND Planned > 60%. Target state."],
+    ["Excessive","BM < 5% AND Planned > 85%. Excessive PM, review intervals."],
+  ];
+  const wsI=XLSX.utils.aoa_to_sheet(instr);
+  wsI["!cols"]=[{wch:22},{wch:70}];
+  XLSX.utils.book_append_sheet(wb,wsI,"Instructions");
+  const hdrs=[["Production Line","Asset ID","Asset Description","PM Count","BM Count","CM Count","IM Count"]];
+  const sample=[
+    ["Line 1: Assembly","L1-001","Conveyor Drive Unit",6,2,2,1],
+    ["Line 1: Assembly","L1-002","Assembly Robot Arm",4,1,2,2],
+    ["Line 2: Packaging","L2-001","Sealing Head A",1,9,1,0],
+    ["Line 2: Packaging","L2-002","Label Applicator",5,1,2,2],
+    ["Line 3: Processing","L3-001","Reactor Vessel",8,1,3,2],
+  ];
+  const wsD=XLSX.utils.aoa_to_sheet([...hdrs,...sample]);
+  wsD["!cols"]=[{wch:24},{wch:12},{wch:28},{wch:10},{wch:10},{wch:10},{wch:10}];
+  wsD["!freeze"]={xSplit:0,ySplit:1};
+  XLSX.utils.book_append_sheet(wb,wsD,"Asset Data");
+  XLSX.writeFile(wb,"IntelBeyond_Asset_Template.xlsx");}
+
+// ── Excel: Parse Upload ───────────────────────────────────────────────────────
+function parseUploadedFile(file){
+  return new Promise((resolve,reject)=>{
+    const reader=new FileReader();
+    reader.onload=e=>{
+      try{
+        const wb=XLSX.read(new Uint8Array(e.target.result),{type:"array"});
+        const sn=wb.SheetNames.find(n=>!/instruction/i.test(n))||wb.SheetNames[0];
+        const rows=XLSX.utils.sheet_to_json(wb.Sheets[sn],{defval:0});
+        if(!rows.length)throw new Error("No data rows found. Ensure data is below the header row.");
+        const keys=Object.keys(rows[0]);
+        const find=(...ps)=>{for(const p of ps){const m=keys.find(k=>new RegExp(p,"i").test(k.replace(/[\s_\-]/g,"")));if(m)return m;}return null;};
+        const cm={
+          line:find("productionline","linename","line"),
+          id:find("assetid","assetno","id"),
+          desc:find("description","desc","assetname","name"),
+          pm:find("pmcount","pm"),bm:find("bmcount","bm"),
+          cm:find("cmcount","cm"),im:find("imcount","im"),
+        };
+        if(!cm.line)throw new Error("Cannot find 'Production Line' column. Check headers match the template.");
+        if(!cm.bm) throw new Error("Cannot find 'BM Count' column. Check headers match the template.");
+        const assets=rows.filter(r=>r[cm.line]).map((r,i)=>({
+          line:String(r[cm.line]).trim(),
+          assetId:cm.id?String(r[cm.id]).trim():`A${String(i+1).padStart(3,"0")}`,
+          desc:cm.desc?String(r[cm.desc]).trim():"",
+          pm:Math.max(0,Number(r[cm.pm])||0),bm:Math.max(0,Number(r[cm.bm])||0),
+          cm:Math.max(0,Number(r[cm.cm])||0),im:Math.max(0,Number(r[cm.im])||0),
+        }));
+        if(!assets.length)throw new Error("No valid asset rows found.");
+        const map={};assets.forEach(a=>{(map[a.line]=map[a.line]||[]).push(a);});
+        resolve(Object.entries(map).map(([name,arr])=>({id:name.replace(/\W+/g,"-").toLowerCase(),name,count:arr.length,assets:arr})));
+      }catch(ex){reject(ex);}
+    };
+    reader.onerror=()=>reject(new Error("Failed to read file."));
+    reader.readAsArrayBuffer(file);});}
+
+// ── Excel: Report Export ──────────────────────────────────────────────────────
+async function downloadReport(lines,overall,actionData={}){
+  const ExcelJS=window.ExcelJS;
+  if(!ExcelJS){alert("Report library not loaded. Check your connection.");return;}
+  const wb=new ExcelJS.Workbook();wb.creator="IntelBeyond";wb.created=new Date();
+  const dateStr=new Date().toLocaleDateString("en-AU",{day:"2-digit",month:"long",year:"numeric"});
+  const W="FFFFFFFF",GD="FF0000CD",GL="FFD6E4F7",GH="FF2C2C2A",GT="FFF5F5F5";
+  const SC={
+    critical:   {bg:"FFB91C1C",ft:"FFFFFFFF"},
+    ineffective:{bg:"FFA16207",ft:"FFFFFFFF"},
+    poor:       {bg:"FFBE185D",ft:"FFFFFFFF"},
+    balanced:   {bg:"FF1D4ED8",ft:"FFFFFFFF"},
+    optimized:  {bg:"FF15803D",ft:"FFFFFFFF"},
+    overkill:   {bg:"FF4B5563",ft:"FFFFFFFF"},
+  };
+  const bdr={top:{style:"thin",color:{argb:"FFD3D1C7"}},bottom:{style:"thin",color:{argb:"FFD3D1C7"}},left:{style:"thin",color:{argb:"FFD3D1C7"}},right:{style:"thin",color:{argb:"FFD3D1C7"}}};
+  const fill=argb=>({type:"pattern",pattern:"solid",fgColor:{argb}});
+  const hSty=(argb,sz=10,left=false)=>({fill:fill(argb),font:{bold:true,color:{argb:W},name:"Arial",size:sz},alignment:{horizontal:left?"left":"center",vertical:"middle",wrapText:true},border:bdr});
+  const dSty=(bg,ft="FF1A1A1A",bold=false,align="left")=>({fill:fill(bg),font:{bold,color:{argb:ft},name:"Arial",size:10},alignment:{horizontal:align,vertical:"middle"},border:bdr});
+
+  // ── Sheet 1: Executive Summary
+  const s1=wb.addWorksheet("Executive Summary");
+  s1.views=[{state:"frozen",xSplit:0,ySplit:3}];
+  const mc=(r,c1,c2,v,sty,h)=>{s1.mergeCells(`${c1}${r}:${c2}${r}`);const cl=s1.getCell(`${c1}${r}`);cl.value=v;cl.style=sty;s1.getRow(r).height=h||18;};
+  mc(1,"A","I","IntelBeyond: Maintenance Intelligence Report",{...hSty(GD,14,true)},34);
+  mc(2,"A","I",`Generated: ${dateStr}  ·  ${overall.total} assets  ·  ${overall.totalWO.toLocaleString()} work orders`,{fill:fill(GL),font:{italic:true,color:{argb:GD},name:"Arial",size:10},alignment:{horizontal:"left",vertical:"middle"}},18);
+  s1.getRow(3).height=8;
+
+  mc(4,"A","I","Asset Classification",{...hSty(GH,11,true)},22);
+  ["Classification","Count","% Assets","Description","Recommended Action"].forEach((h,i)=>{const c=s1.getCell(5,i+1);c.value=h;c.style=hSty(GH);});s1.getRow(5).height=18;
+  SKEYS.forEach((sc,i)=>{
+    const row=s1.getRow(6+i);row.height=18;const cnt=overall.counts[sc];
+    const action=sc==="critical"||sc==="poor"?"↑ Increase PM/CM frequency":sc==="ineffective"?"⚠ Investigate PM effectiveness. Failures occurring despite planned work.":sc==="overkill"?"↓ Review and extend PM intervals":sc==="optimized"?"✓ Maintain current programme":"→ Monitor for drift";
+    [SM[sc].label,cnt,(cnt/overall.total*100).toFixed(1)+"%",SM[sc].desc,action].forEach((v,ci)=>{
+      const cell=row.getCell(ci+1);cell.value=v;cell.style=dSty(SC[sc].bg,SC[sc].ft,ci===0,ci===0||ci>=3?"left":"center");});});
+  s1.getRow(12).height=8;
+
+  mc(12,"A","I","Work Order Distribution",{...hSty(GD,11,true)},22);
+  ["Type","Description","Count","% of WOs"].forEach((h,i)=>{const c=s1.getCell(13,i+1);c.value=h;c.style=hSty(GH);});s1.getRow(13).height=18;
+  [["PM","Preventive Maintenance",overall.totalPM,"FF16A34A"],["BM","Breakdown Maintenance",overall.totalBM,"FFDC2626"],
+   ["CM","Condition-based Maintenance",overall.totalCM,"FF2563EB"],["IM","Inspection Maintenance",overall.totalIM,"FFD97706"]
+  ].forEach(([lbl,desc,cnt,clr],i)=>{
+    const row=s1.getRow(14+i);row.height=18;
+    [lbl,desc,cnt,(cnt/overall.totalWO*100).toFixed(1)+"%"].forEach((v,ci)=>{
+      const cell=row.getCell(ci+1);cell.value=v;
+      cell.style=ci===0?{fill:fill(clr),font:{bold:true,color:{argb:W},name:"Arial",size:10},alignment:{horizontal:"center",vertical:"middle"},border:bdr}
+        :dSty(i%2===0?GT:W,"FF1A1A1A",false,ci===1?"left":"center");});});
+  s1.getRow(18).height=8;
+
+  mc(19,"A","I","Line Performance Summary",{...hSty(GH,11,true)},22);
+  ["Line","Assets","BM %","Planned %","Critical","Poor","Balanced","Optimized","Excessive"].forEach((h,i)=>{const c=s1.getCell(20,i+1);c.value=h;c.style=hSty(GH);});s1.getRow(20).height=18;
+  lines.forEach((l,i)=>{
+    const st=calcStats(l.assets);const row=s1.getRow(21+i);row.height=18;
+    [l.name,l.count,(st.totalBM/st.totalWO*100).toFixed(1)+"%",((st.totalWO-st.totalBM)/st.totalWO*100).toFixed(1)+"%",
+     st.counts.critical,st.counts.poor,st.counts.balanced,st.counts.optimized,st.counts.overkill
+    ].forEach((v,ci)=>{const cell=row.getCell(ci+1);cell.value=v;cell.style=dSty(i%2===0?GT:W,"FF1A1A1A",ci===0,ci===0?"left":"center");});});
+  s1.columns=[{width:26},{width:10},{width:10},{width:13},{width:45},{width:30},{width:10},{width:8},{width:10},{width:11},{width:10}].slice(0,9);
+  s1.getColumn(1).width=26;s1.getColumn(2).width=10;s1.getColumn(3).width=10;s1.getColumn(4).width=13;s1.getColumn(5).width=44;s1.getColumn(6).width=30;s1.getColumn(7).width=9;s1.getColumn(8).width=8;s1.getColumn(9).width=10;
+
+  // ── Sheet 2: Asset Detail
+  const s2=wb.addWorksheet("Asset Detail");
+  s2.views=[{state:"frozen",xSplit:0,ySplit:1}];
+  ["Production Line","Asset ID","Description","PM","BM","CM","IM","Total WO","BM %","Planned %","Classification"].forEach((h,i)=>{
+    const c=s2.getCell(1,i+1);c.value=h;c.style=hSty(GD);});s2.getRow(1).height=22;
+  let ri=2;
+  for(const l of lines)for(const a of l.assets){
+    const row=s2.getRow(ri);row.height=16;const sc=SC[a.score];
+    [l.name,a.assetId,a.desc||"",a.pm,a.bm,a.cm,a.im,a.total,
+     (a.bmRatio*100).toFixed(1)+"%",(a.plannedRatio*100).toFixed(1)+"%",SM[a.score].label
+    ].forEach((v,ci)=>{const cell=row.getCell(ci+1);cell.value=v;
+      cell.style=ci===10?dSty(sc.bg,sc.ft,true,"center"):dSty(ri%2===0?GT:W,"FF1A1A1A",false,ci<=2?"left":"center");});ri++;}
+  [24,12,28,6,6,6,6,10,9,12,14].forEach((w,i)=>{s2.getColumn(i+1).width=w;});
+  s2.autoFilter={from:{row:1,column:1},to:{row:1,column:11}};
+
+  // ── Sheet 3: Action List
+  const s3=wb.addWorksheet("Action List");
+  s3.views=[{state:"frozen",xSplit:0,ySplit:1}];
+  ["Action ID","Production Line","Asset ID","Classification","BM %","Planned %","Action","Responsible","Due Date"].forEach((h,i)=>{
+    const c=s3.getCell(1,i+1);c.value=h;c.style=hSty(GD);});
+  s3.getRow(1).height=22;
+  s3.autoFilter={from:{row:1,column:1},to:{row:1,column:9}};
+  const allSorted=lines.flatMap(l=>l.assets.map(a=>({...a,lineName:l.name}))).sort((a,b)=>SCORE_ORDER[a.score]-SCORE_ORDER[b.score]);
+  const idMap={};allSorted.forEach((a,i)=>{idMap[a.assetId]=`ACT-${String(i+1).padStart(3,"0")}`;});
+  let ar=2;
+  for(const a of allSorted){
+    const ad=actionData[a.assetId]||{};
+    const row=s3.getRow(ar);row.height=16;const sc=SC[a.score];
+    [idMap[a.assetId],a.lineName,a.assetId,SM[a.score].label,
+     (a.bmRatio*100).toFixed(1)+"%",(a.plannedRatio*100).toFixed(1)+"%",
+     ad.action||"",ad.responsible||"",ad.dueDate||""
+    ].forEach((v,ci)=>{const cell=row.getCell(ci+1);cell.value=v;
+      cell.style=ci===3?dSty(sc.bg,sc.ft,true,"center"):dSty(ar%2===0?GT:W,"FF1A1A1A",false,"left");});
+    ar++;}
+  [10,26,12,16,10,12,50,22,14].forEach((w,i)=>{s3.getColumn(i+1).width=w;});
+
+  const buf=await wb.xlsx.writeBuffer();
+  const url=URL.createObjectURL(new Blob([buf],{type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}));
+  const a=document.createElement("a");a.href=url;
+  a.download=`IntelBeyond_Report_${new Date().toISOString().slice(0,10)}.xlsx`;
+  document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(url);}
+
+// ── Login Page ────────────────────────────────────────────────────────────────
+function LoginPage({onLogin}){
+  const[un,setUn]=useState(""),[pw,setPw]=useState(""),[rem,setRem]=useState(false),[err,setErr]=useState("");
+  const submit=e=>{e.preventDefault();
+    const c=CREDENTIALS.find(c=>c.username.toLowerCase()===un.toLowerCase().trim()&&c.password===pw);
+    if(c){(rem?localStorage:sessionStorage).setItem("ib_user",JSON.stringify(c));onLogin(c);}
+    else setErr("Invalid username or password. Please try again.");};
+  return(
+    <div style={{minHeight:"100vh",background:"linear-gradient(135deg,#071628 0%,#0052FF 55%,#0052FF 100%)",display:"flex",alignItems:"center",justifyContent:"center",padding:"2rem"}}>
+      <div style={{background:"#fff",borderRadius:20,padding:"2.5rem",width:"100%",maxWidth:420,boxShadow:"0 28px 80px rgba(0,0,0,.25)"}}>
+        <div style={{textAlign:"center",marginBottom:"2rem"}}>
+          <div style={{display:"inline-flex",alignItems:"center",justifyContent:"center",width:62,height:62,background:"#DBEAFE",borderRadius:16,marginBottom:14}}>
+            <span style={{fontSize:30}}>📊</span></div>
+          <div style={{fontSize:28,fontWeight:900,color:"#0052FF",letterSpacing:"-1px"}}>IntelBeyond</div>
+          <div style={{fontSize:12,color:"#999",marginTop:5,letterSpacing:".08em",textTransform:"uppercase"}}>Asset Maintenance Intelligence</div>
+        </div>
+        <form onSubmit={submit}>
+          <div style={{marginBottom:"1rem"}}>
+            <label style={{display:"block",fontSize:11,fontWeight:700,color:"#555",marginBottom:6,textTransform:"uppercase",letterSpacing:".06em"}}>Username</label>
+            <input type="text" value={un} onChange={e=>setUn(e.target.value)} required autoFocus placeholder="Enter your username"/>
+          </div>
+          <div style={{marginBottom:"1rem"}}>
+            <label style={{display:"block",fontSize:11,fontWeight:700,color:"#555",marginBottom:6,textTransform:"uppercase",letterSpacing:".06em"}}>Password</label>
+            <input type="password" value={pw} onChange={e=>setPw(e.target.value)} required placeholder="Enter your password"/>
+          </div>
+          {err&&<div style={{fontSize:12,color:"#A32D2D",background:"#FCEBEB",border:"1px solid #F7C1C1",padding:"9px 12px",borderRadius:7,marginBottom:"1rem"}}>{err}</div>}
+          <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:"1.5rem"}}>
+            <input type="checkbox" id="rem" checked={rem} onChange={e=>setRem(e.target.checked)} style={{width:15,height:15,cursor:"pointer",accentColor:"#0052FF"}}/>
+            <label htmlFor="rem" style={{fontSize:13,color:"#666",cursor:"pointer"}}>Keep me signed in</label>
+          </div>
+          <button type="submit" className="btn btn-primary" style={{width:"100%",justifyContent:"center",padding:"13px",fontSize:15}}>Sign in →</button>
+        </form>
+        <p style={{textAlign:"center",marginTop:"2rem",fontSize:11,color:"#ccc"}}>© 2025 IntelBeyond · Confidential demo</p>
+      </div>
+    </div>);}
+
+// ── Empty State ───────────────────────────────────────────────────────────────
+function EmptyState({onUpload,onTemplate}){
+  return(
+    <div style={{textAlign:"center",padding:"4rem 2rem"}}>
+      <div style={{fontSize:60,marginBottom:"1.25rem"}}>📊</div>
+      <h2 style={{fontSize:26,fontWeight:900,color:"#1a1a1a",marginBottom:12}}>Upload your asset data</h2>
+      <p style={{fontSize:15,color:"#777",maxWidth:500,margin:"0 auto 2rem",lineHeight:1.7}}>
+        Download the Excel template, fill in your asset work order counts, then upload to generate your maintenance heatmap instantly.
+      </p>
+      <div style={{display:"flex",gap:12,justifyContent:"center",marginBottom:"3rem",flexWrap:"wrap"}}>
+        <button className="btn btn-outline" onClick={onTemplate} style={{fontSize:14,padding:"13px 28px"}}>⬇ Download Template</button>
+        <button className="btn btn-primary" onClick={onUpload} style={{fontSize:14,padding:"13px 28px"}}>⬆ Upload Your Data</button>
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:20,maxWidth:720,margin:"0 auto",textAlign:"left"}}>
+        {[
+          {icon:"🗺",t:"Visual heatmap",d:"Every asset classified by maintenance health. Instantly spot clusters of breakdown-heavy or over-maintained equipment."},
+          {icon:"⚡",t:"Auto-classification",d:"Critical, Poor, Balanced, Optimized, or Excessive. Scored automatically from your work order type ratios."},
+          {icon:"📥",t:"Formatted Excel export",d:"Download a fully styled Excel report with executive summary and per-asset detail. Ready for any client review."},
+        ].map((f,i)=>(
+          <div key={i} className="card">
+            <div style={{fontSize:30,marginBottom:10}}>{f.icon}</div>
+            <div style={{fontSize:14,fontWeight:700,color:"#1a1a1a",marginBottom:6}}>{f.t}</div>
+            <div style={{fontSize:13,color:"#777",lineHeight:1.65}}>{f.d}</div>
+          </div>))}</div>
+    </div>);}
+
+// ── MultiSelect Dropdown ─────────────────────────────────────────────────────
+function MultiSelect({options,selected,onChange,placeholder,width}){
+  const[open,setOpen]=React.useState(false);
+  const ref=React.useRef(null);
+  React.useEffect(()=>{
+    const h=e=>{if(ref.current&&!ref.current.contains(e.target))setOpen(false);};
+    document.addEventListener("mousedown",h);return()=>document.removeEventListener("mousedown",h);
+  },[]);
+  const toggle=val=>{
+    const s=new Set(selected);
+    s.has(val)?s.delete(val):s.add(val);
+    onChange([...s]);
+  };
+  const label=selected.length===0?placeholder:selected.length===options.length?"All":selected.length+" selected";
+  return(
+    <div ref={ref} style={{position:"relative",width:width||"100%"}}>
+      <button onClick={()=>setOpen(o=>!o)} type="button"
+        style={{width:"100%",padding:"3px 6px",border:"1px solid #ddd",borderRadius:4,fontSize:11,
+          fontFamily:"inherit",background:"#fafafa",color:selected.length?"#333":"#999",
+          cursor:"pointer",textAlign:"left",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>
+        {label} ▾
+      </button>
+      {open&&<div style={{position:"absolute",top:"100%",left:0,zIndex:200,background:"#fff",
+        border:"1px solid #ddd",borderRadius:6,boxShadow:"0 4px 16px rgba(0,0,0,.12)",
+        maxHeight:200,overflowY:"auto",minWidth:"100%",padding:"4px 0"}}>
+        <div style={{padding:"2px 8px",borderBottom:"1px solid #eee",marginBottom:2}}>
+          <button onClick={()=>onChange(selected.length===options.length?[]:[...options.map(o=>o.value)])} type="button"
+            style={{background:"none",border:"none",fontSize:10,color:"#0052FF",cursor:"pointer",padding:"2px 0",fontWeight:600}}>
+            {selected.length===options.length?"Clear all":"Select all"}
+          </button>
+        </div>
+        {options.map(o=>(
+          <label key={o.value} style={{display:"flex",alignItems:"center",gap:6,padding:"3px 8px",fontSize:11,
+            cursor:"pointer",background:selected.includes(o.value)?"#EFF6FF":"transparent"}}
+            onMouseEnter={e=>e.currentTarget.style.background=selected.includes(o.value)?"#DBEAFE":"#f5f5f5"}
+            onMouseLeave={e=>e.currentTarget.style.background=selected.includes(o.value)?"#EFF6FF":"transparent"}>
+            <input type="checkbox" checked={selected.includes(o.value)} onChange={()=>toggle(o.value)}
+              style={{width:13,height:13,accentColor:"#0052FF",margin:0}}/>
+            {o.color&&<span style={{width:8,height:8,borderRadius:2,background:o.color,flexShrink:0}}/>}
+            <span style={{color:"#333"}}>{o.label}</span>
+            {o.count!=null&&<span style={{color:"#bbb",marginLeft:"auto",fontSize:10}}>{o.count}</span>}
+          </label>
+        ))}
+      </div>}
+    </div>);
+}
+
+// ── Action List ───────────────────────────────────────────────────────────────
+function ActionList({lines,actionData,setActionData}){
+  const[filterScore,setFilterScore]=useState(null);
+  const[search,setSearch]=useState("");
+  const[colF,setColF]=useState({lines:[],asset:"",scores:[],minBM:"",minPlanned:"",action:"",responsible:"",dueBy:""});
+  const allAssets=useMemo(()=>{
+    const arr=lines.flatMap(l=>l.assets.map(a=>({...a,lineName:l.name})));
+    arr.sort((a,b)=>SCORE_ORDER[a.score]-SCORE_ORDER[b.score]);
+    return arr;},[lines]);
+  const actionIdMap=useMemo(()=>{
+    const m={};allAssets.forEach((a,i)=>{m[a.assetId]=`ACT-${String(i+1).padStart(3,"0")}`;});
+    return m;},[allAssets]);
+  const setCF=(k,v)=>setColF(p=>({...p,[k]:v}));
+  const hasAnyFilter=filterScore||search||colF.lines.length||colF.scores.length||colF.asset||colF.minBM||colF.minPlanned||colF.action||colF.responsible||colF.dueBy;
+  const visible=allAssets.filter(a=>{
+    if(filterScore&&a.score!==filterScore)return false;
+    if(search&&!`${a.assetId} ${a.lineName} ${a.desc}`.toLowerCase().includes(search.toLowerCase()))return false;
+    if(colF.lines.length&&!colF.lines.includes(a.lineName))return false;
+    if(colF.asset&&!a.assetId.toLowerCase().includes(colF.asset.toLowerCase()))return false;
+    if(colF.scores.length&&!colF.scores.includes(a.score))return false;
+    if(colF.minBM&&(a.bmRatio*100)<parseFloat(colF.minBM))return false;
+    if(colF.minPlanned&&(a.plannedRatio*100)<parseFloat(colF.minPlanned))return false;
+    const ad=actionData[a.assetId]||{};
+    if(colF.action&&!(ad.action||"").toLowerCase().includes(colF.action.toLowerCase()))return false;
+    if(colF.responsible&&!(ad.responsible||"").toLowerCase().includes(colF.responsible.toLowerCase()))return false;
+    if(colF.dueBy&&(!ad.dueDate||ad.dueDate>colF.dueBy))return false;
+    return true;});
+  const upd=(id,field,val)=>setActionData(prev=>({...prev,[id]:{...(prev[id]||{}),[field]:val}}));
+  const clearAll=()=>{setFilterScore(null);setSearch("");setColF({lines:[],asset:"",scores:[],minBM:"",minPlanned:"",action:"",responsible:"",dueBy:""});};
+  const iSty={width:"100%",padding:"5px 8px",border:"1.5px solid #e5e5e5",borderRadius:6,fontSize:12,fontFamily:"inherit",outline:"none",background:"#fff"};
+  const fSty={width:"100%",padding:"3px 6px",border:"1px solid #ddd",borderRadius:4,fontSize:11,fontFamily:"inherit",outline:"none",background:"#fafafa",color:"#555"};
+  return(
+    <div>
+      {/* Top filters */}
+      <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center",marginBottom:"1rem"}}>
+        <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search asset, line…"
+          style={{...iSty,width:200,padding:"7px 10px",fontSize:13}}/>
+        <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
+          {SKEYS.map(sc=>{const m=SM[sc],a=filterScore===sc,cnt=allAssets.filter(x=>x.score===sc).length;
+            if(!cnt)return null;
+            return<button key={sc} onClick={()=>setFilterScore(a?null:sc)}
+              style={{fontSize:11,fontWeight:700,padding:"4px 10px",borderRadius:5,cursor:"pointer",
+                background:a?m.bg:"#fff",color:a?m.text:m.bg,border:`1.5px solid ${m.bg}`}}>
+              {m.label} {cnt}
+            </button>;})}
+        </div>
+        {hasAnyFilter&&<button onClick={clearAll}
+          style={{fontSize:11,color:"#999",background:"none",border:"1px solid #e0e0e0",borderRadius:5,padding:"4px 10px",cursor:"pointer"}}>
+          Clear all filters
+        </button>}
+        <span style={{marginLeft:"auto",fontSize:12,color:"#aaa"}}>{visible.length} assets shown</span>
+      </div>
+      {/* Table */}
+      <div style={{background:"#fff",borderRadius:12,border:"1px solid #e5e5e5",overflow:"hidden"}}>
+        <div style={{overflowX:"auto"}}>
+          <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+            <thead>
+              <tr style={{background:"#1a1a1a",color:"#fff"}}>
+                {["ID","Line","Asset ID","Classification","BM%","Planned%","Action","Responsible","Due Date"].map(h=>(
+                  <th key={h} style={{padding:"10px 12px",fontWeight:700,textAlign:"left",whiteSpace:"nowrap",fontSize:11,
+                    letterSpacing:".04em",textTransform:"uppercase"}}>{h}</th>
+                ))}
+              </tr>
+              <tr style={{background:"#f0f0f0",borderBottom:"2px solid #d8d8d8"}}>
+                <th style={{padding:"4px 8px",fontWeight:400}}/>
+                <th style={{padding:"4px 8px",fontWeight:400}}>
+                  <MultiSelect placeholder="All lines" selected={colF.lines}
+                    onChange={v=>setCF("lines",v)}
+                    options={[...new Set(allAssets.map(a=>a.lineName))].map(n=>({value:n,label:n}))}/>
+                </th>
+                <th style={{padding:"4px 8px",fontWeight:400}}>
+                  <input value={colF.asset} onChange={e=>setCF("asset",e.target.value)} placeholder="Filter ID…" style={fSty}/>
+                </th>
+                <th style={{padding:"4px 8px",fontWeight:400}}>
+                  <MultiSelect placeholder="All classes" selected={colF.scores}
+                    onChange={v=>setCF("scores",v)}
+                    options={SKEYS.filter(sc=>allAssets.some(a=>a.score===sc)).map(sc=>({value:sc,label:SM[sc].label,color:SM[sc].bg,count:allAssets.filter(a=>a.score===sc).length}))}/>
+                </th>
+                <th style={{padding:"4px 8px",fontWeight:400}}>
+                  <input type="number" value={colF.minBM} onChange={e=>setCF("minBM",e.target.value)}
+                    placeholder="≥ %" min="0" max="100" style={{...fSty,width:58}}/>
+                </th>
+                <th style={{padding:"4px 8px",fontWeight:400}}>
+                  <input type="number" value={colF.minPlanned} onChange={e=>setCF("minPlanned",e.target.value)}
+                    placeholder="≥ %" min="0" max="100" style={{...fSty,width:58}}/>
+                </th>
+                <th style={{padding:"4px 8px",fontWeight:400}}>
+                  <input value={colF.action} onChange={e=>setCF("action",e.target.value)} placeholder="Filter…" style={fSty}/>
+                </th>
+                <th style={{padding:"4px 8px",fontWeight:400}}>
+                  <input value={colF.responsible} onChange={e=>setCF("responsible",e.target.value)} placeholder="Filter…" style={fSty}/>
+                </th>
+                <th style={{padding:"4px 8px",fontWeight:400}}>
+                  <input type="date" value={colF.dueBy} onChange={e=>setCF("dueBy",e.target.value)}
+                    title="Show items due by this date" style={{...fSty,minWidth:120}}/>
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {visible.map((a,idx)=>{
+                const m=SM[a.score];const ad=actionData[a.assetId]||{};const even=idx%2===0;
+                return(
+                  <tr key={a.assetId} style={{background:even?"#fff":"#fafafa",borderBottom:"1px solid #f0f0f0"}}>
+                    <td style={{padding:"8px 12px",fontWeight:700,color:"#aaa",fontSize:11,whiteSpace:"nowrap",fontFamily:"monospace"}}>{actionIdMap[a.assetId]}</td>
+                    <td style={{padding:"8px 12px",color:"#666",whiteSpace:"nowrap"}}>{a.lineName}</td>
+                    <td style={{padding:"8px 12px",fontWeight:700,color:"#1a1a1a",whiteSpace:"nowrap"}}>{a.assetId}</td>
+                    <td style={{padding:"8px 12px"}}>
+                      <span style={{background:m.bg,color:m.text,fontSize:10,fontWeight:700,
+                        padding:"2px 8px",borderRadius:4,whiteSpace:"nowrap"}}>{m.label}</span>
+                    </td>
+                    <td style={{padding:"8px 12px",color:"#E24B4A",fontWeight:700}}>{(a.bmRatio*100).toFixed(0)}%</td>
+                    <td style={{padding:"8px 12px",color:"#1D9E75",fontWeight:700}}>{(a.plannedRatio*100).toFixed(0)}%</td>
+                    <td style={{padding:"6px 8px",minWidth:200}}>
+                      <input value={ad.action||""} onChange={e=>upd(a.assetId,"action",e.target.value)}
+                        placeholder="Enter action…" style={iSty}/>
+                    </td>
+                    <td style={{padding:"6px 8px",minWidth:140}}>
+                      <input value={ad.responsible||""} onChange={e=>upd(a.assetId,"responsible",e.target.value)}
+                        placeholder="Name…" style={iSty}/>
+                    </td>
+                    <td style={{padding:"6px 8px",minWidth:130}}>
+                      <input type="date" value={ad.dueDate||""} onChange={e=>upd(a.assetId,"dueDate",e.target.value)}
+                        style={iSty}/>
+                    </td>
+                  </tr>);})}
+              {!visible.length&&(
+                <tr><td colSpan={9} style={{padding:"2rem",textAlign:"center",color:"#aaa",fontSize:13}}>
+                  No assets match the current filters.
+                </td></tr>)}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>);}
+
+// ── Help Modal ────────────────────────────────────────────────────────────────
+function HelpModal({onClose,thresholds,onOpenSettings}){
+  const t=thresholds;
+  const[activeEx,setActiveEx]=useState(0);
+  const EXAMPLES=[
+    {name:"Asset L2-001",desc:"High breakdowns",     pm:2, bm:10,cm:2,im:1},
+    {name:"Asset L3-007",desc:"Planned not working", pm:8, bm:5, cm:3,im:2},
+    {name:"Asset L4-012",desc:"Well maintained",     pm:12,bm:1, cm:4,im:3},
+    {name:"Asset L1-008",desc:"Balanced",            pm:4, bm:3, cm:2,im:2},
+  ];
+  const ex=EXAMPLES[activeEx];
+  const tot=ex.pm+ex.bm+ex.cm+ex.im;
+  const bmP=ex.bm/tot*100;
+  const plP=(ex.pm+ex.cm+ex.im)/tot*100;
+  const CHECKS=[
+    {sc:"critical",   expr:`BM% (${bmP.toFixed(1)}%) ≥ ${t.criticalBM}%`,                                                         pass:bmP>=t.criticalBM},
+    {sc:"ineffective",expr:`BM% (${bmP.toFixed(1)}%) ≥ ${t.ineffectiveBM}% AND Planned% (${plP.toFixed(1)}%) > ${t.ineffectivePlanned}%`,pass:bmP>=t.ineffectiveBM&&plP>t.ineffectivePlanned},
+    {sc:"poor",       expr:`BM% (${bmP.toFixed(1)}%) ≥ ${t.poorBM}%`,                                                             pass:bmP>=t.poorBM},
+    {sc:"overkill",   expr:`BM% (${bmP.toFixed(1)}%) < ${t.excessiveBM}% AND Planned% (${plP.toFixed(1)}%) > ${t.excessivePlanned}%`,pass:bmP<t.excessiveBM&&plP>t.excessivePlanned},
+    {sc:"optimized",  expr:`BM% (${bmP.toFixed(1)}%) < ${t.optimizedBM}% AND Planned% (${plP.toFixed(1)}%) > ${t.optimizedPlanned}%`,pass:bmP<t.optimizedBM&&plP>t.optimizedPlanned},
+    {sc:"balanced",   expr:"No previous rule matched. Default classification.",                                                    pass:true},
+  ];
+  const firstPassIdx=CHECKS.findIndex(c=>c.pass);
+  const resultSc=CHECKS[firstPassIdx].sc;
+  const shownChecks=CHECKS.slice(0,firstPassIdx+1);
+
+  const RULES=[
+    {sc:"critical",   priority:1, conds:[`BM% ≥ ${t.criticalBM}%`],
+     why:"The asset is in reactive fire-fighting mode. Breakdowns dominate all maintenance effort.",
+     action:"Investigate root causes immediately. Increase PM and CM frequency. Consider reliability review or capital replacement."},
+    {sc:"ineffective",priority:2, conds:[`BM% ≥ ${t.ineffectiveBM}%`,`AND Planned% > ${t.ineffectivePlanned}%`],
+     why:"Despite a high proportion of planned work, breakdown rates remain elevated. The planned tasks are not preventing failures.",
+     action:"Audit planned task content and frequencies. Perform root-cause analysis on recurring failures."},
+    {sc:"poor",       priority:3, conds:[`BM% ≥ ${t.poorBM}%`],
+     why:"Planned maintenance is lagging. The asset is drifting toward a reactive pattern.",
+     action:"Review backlog and resource allocation. Increase PM frequency or add condition-monitoring tasks."},
+    {sc:"overkill",   priority:4, conds:[`BM% < ${t.excessiveBM}%`,`AND Planned% > ${t.excessivePlanned}%`],
+     why:"Near-zero breakdowns with extremely high planned work. Resources may be spent on unnecessary tasks.",
+     action:"Review PM intervals. Consider extending time-between-maintenance. Redirect capacity to higher-priority assets."},
+    {sc:"optimized",  priority:5, conds:[`BM% < ${t.optimizedBM}%`,`AND Planned% > ${t.optimizedPlanned}%`],
+     why:"Low breakdown rate with strong planned coverage. This is the target operating state.",
+     action:"Maintain the current programme. Document and share the approach across other lines."},
+    {sc:"balanced",   priority:6, conds:["All other assets (automatic)"],
+     why:"An acceptable mix of planned and reactive work. No single extreme pattern dominates.",
+     action:"Monitor quarterly for drift. No immediate action required."},
+  ];
+
+  return(
+    <div onClick={e=>{if(e.target===e.currentTarget)onClose();}}
+      style={{position:"fixed",inset:0,background:"rgba(10,20,60,.6)",zIndex:500,display:"flex",alignItems:"center",justifyContent:"center",padding:"1rem",backdropFilter:"blur(3px)"}}>
+      <div style={{background:"#fff",borderRadius:16,width:"100%",maxWidth:820,maxHeight:"92vh",overflowY:"auto",boxShadow:"0 30px 100px rgba(0,0,0,.35)",display:"flex",flexDirection:"column"}}>
+
+        {/* Header */}
+        <div style={{background:"#0052FF",color:"#fff",padding:"1.25rem 1.5rem",borderRadius:"16px 16px 0 0",display:"flex",alignItems:"flex-start",justifyContent:"space-between",flexShrink:0}}>
+          <div>
+            <div style={{fontSize:19,fontWeight:900,letterSpacing:"-0.3px"}}>ⓘ How Classifications Are Calculated</div>
+            <div style={{fontSize:12,opacity:.75,marginTop:3}}>Step-by-step walkthrough of the maintenance health scoring system</div>
+          </div>
+          <button onClick={onClose}
+            style={{background:"rgba(255,255,255,.2)",border:"none",color:"#fff",width:34,height:34,borderRadius:8,cursor:"pointer",fontSize:18,lineHeight:1,flexShrink:0,marginLeft:12}}>✕</button>
+        </div>
+
+        <div style={{padding:"1.5rem",display:"flex",flexDirection:"column",gap:"1.5rem"}}>
+
+          {/* Intro */}
+          <div style={{background:"#EFF6FF",border:"1px solid #BFDBFE",borderLeft:"4px solid #0052FF",borderRadius:10,padding:"1rem 1.25rem"}}>
+            <div style={{fontSize:13,fontWeight:700,color:"#0052FF",marginBottom:6}}>The two numbers that drive everything</div>
+            <p style={{fontSize:13,color:"#374151",lineHeight:1.8,margin:0}}>
+              For each asset, the app calculates two percentages from its work order counts: <strong>BM% (reactive rate)</strong> and <strong>Planned% (proactive rate)</strong>.
+              These are tested against a set of rules in priority order. <strong>The first rule that matches determines the classification. Evaluation stops there.</strong>
+            </p>
+          </div>
+
+          {/* Formulas */}
+          <div style={{background:"#1a1a1a",borderRadius:12,padding:"1.25rem"}}>
+            <div style={{fontSize:11,color:"#888",textTransform:"uppercase",letterSpacing:".08em",marginBottom:12}}>The two formulas</div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(250px,1fr))",gap:10}}>
+              <div style={{background:"#2a2a2a",borderRadius:8,padding:"12px 14px"}}>
+                <div style={{fontSize:11,color:"#F87171",fontWeight:700,marginBottom:6}}>BM% (Reactive ratio)</div>
+                <div style={{fontFamily:"monospace",fontSize:13,color:"#fff",marginBottom:6}}>BM ÷ (PM + BM + CM + IM) × 100</div>
+                <div style={{fontSize:11,color:"#9CA3AF",lineHeight:1.5}}>What fraction of all work orders are breakdowns? Higher = more reactive.</div>
+              </div>
+              <div style={{background:"#2a2a2a",borderRadius:8,padding:"12px 14px"}}>
+                <div style={{fontSize:11,color:"#6EE7B7",fontWeight:700,marginBottom:6}}>Planned% (Proactive ratio)</div>
+                <div style={{fontFamily:"monospace",fontSize:13,color:"#fff",marginBottom:6}}>(PM + CM + IM) ÷ (PM + BM + CM + IM) × 100</div>
+                <div style={{fontSize:11,color:"#9CA3AF",lineHeight:1.5}}>What fraction are planned tasks? Higher = more proactive. Note: BM% + Planned% = 100%.</div>
+              </div>
+            </div>
+          </div>
+
+          {/* Live Worked Example */}
+          <div>
+            <div style={{fontSize:12,fontWeight:700,color:"#6B7280",textTransform:"uppercase",letterSpacing:".07em",marginBottom:10}}>
+              Live calculation · click a scenario to see the step-by-step working
+            </div>
+            <div style={{display:"flex",gap:6,marginBottom:12,flexWrap:"wrap"}}>
+              {EXAMPLES.map((e,i)=>{
+                const et=e.pm+e.bm+e.cm+e.im;
+                const eb=e.bm/et*100,ep=(e.pm+e.cm+e.im)/et*100;
+                const passes=[eb>=t.criticalBM,eb>=t.ineffectiveBM&&ep>t.ineffectivePlanned,eb>=t.poorBM,eb<t.excessiveBM&&ep>t.excessivePlanned,eb<t.optimizedBM&&ep>t.optimizedPlanned,true];
+                const rsc=["critical","ineffective","poor","overkill","optimized","balanced"][passes.findIndex(Boolean)];
+                const m=SM[rsc];
+                return(
+                  <button key={i} onClick={()=>setActiveEx(i)}
+                    style={{padding:"6px 14px",fontSize:12,fontWeight:700,borderRadius:7,cursor:"pointer",
+                      border:`2px solid ${activeEx===i?m.bg:"#E5E7EB"}`,
+                      background:activeEx===i?m.bg:"#F9FAFB",color:activeEx===i?m.text:"#374151",transition:"all .15s"}}>
+                    {e.desc}
+                  </button>
+                );
+              })}
+            </div>
+
+            <div style={{background:"#F9FAFB",border:"1px solid #E5E7EB",borderRadius:12,padding:"1.25rem",display:"flex",flexDirection:"column",gap:16}}>
+
+              {/* Step 1 */}
+              <div>
+                <div style={{fontSize:11,fontWeight:700,textTransform:"uppercase",letterSpacing:".07em",color:"#6B7280",marginBottom:10}}>Step 1 · Work order counts for this asset</div>
+                <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
+                  {[["PM",ex.pm,"#16A34A"],["BM",ex.bm,"#DC2626"],["CM",ex.cm,"#2563EB"],["IM",ex.im,"#D97706"]].map(([tp,cnt,clr])=>(
+                    <div key={tp} style={{background:"#fff",border:`2px solid ${clr}`,borderRadius:8,padding:"8px 14px",textAlign:"center",minWidth:62}}>
+                      <div style={{fontSize:24,fontWeight:900,color:"#1a1a1a",lineHeight:1}}>{cnt}</div>
+                      <div style={{fontSize:10,fontWeight:700,color:clr,marginTop:4}}>{tp}</div>
+                    </div>
+                  ))}
+                  <div style={{fontSize:22,color:"#D1D5DB",fontWeight:300}}>→</div>
+                  <div style={{background:"#1a1a1a",borderRadius:8,padding:"8px 14px",textAlign:"center",minWidth:62}}>
+                    <div style={{fontSize:24,fontWeight:900,color:"#fff",lineHeight:1}}>{tot}</div>
+                    <div style={{fontSize:10,fontWeight:700,color:"#9CA3AF",marginTop:4}}>TOTAL</div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Step 2 */}
+              <div>
+                <div style={{fontSize:11,fontWeight:700,textTransform:"uppercase",letterSpacing:".07em",color:"#6B7280",marginBottom:10}}>Step 2 · Apply the formulas</div>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(220px,1fr))",gap:8}}>
+                  <div style={{background:"#FEF2F2",border:"1px solid #FECACA",borderRadius:8,padding:"12px 14px"}}>
+                    <div style={{fontSize:10,color:"#991B1B",fontWeight:700,marginBottom:6}}>BM% (Reactive)</div>
+                    <div style={{fontFamily:"monospace",fontSize:12,color:"#7F1D1D",marginBottom:2}}>{ex.bm} ÷ {tot} × 100</div>
+                    <div style={{fontFamily:"monospace",fontSize:22,fontWeight:900,color:"#DC2626"}}>= {bmP.toFixed(1)}%</div>
+                  </div>
+                  <div style={{background:"#F0FDF4",border:"1px solid #BBF7D0",borderRadius:8,padding:"12px 14px"}}>
+                    <div style={{fontSize:10,color:"#15803D",fontWeight:700,marginBottom:6}}>Planned% (Proactive)</div>
+                    <div style={{fontFamily:"monospace",fontSize:12,color:"#14532D",marginBottom:2}}>({ex.pm}+{ex.cm}+{ex.im}) ÷ {tot} × 100</div>
+                    <div style={{fontFamily:"monospace",fontSize:22,fontWeight:900,color:"#16A34A"}}>= {plP.toFixed(1)}%</div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Step 3 */}
+              <div>
+                <div style={{fontSize:11,fontWeight:700,textTransform:"uppercase",letterSpacing:".07em",color:"#6B7280",marginBottom:10}}>Step 3 · Test rules in priority order (stop at first ✓ match)</div>
+                <div style={{display:"flex",flexDirection:"column",gap:4}}>
+                  {shownChecks.map((chk,i)=>{
+                    const isMatch=i===shownChecks.length-1;
+                    const m=SM[chk.sc];
+                    return(
+                      <div key={chk.sc} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 12px",borderRadius:8,
+                        background:isMatch?`${m.bg}18`:"#fff",border:`1px solid ${isMatch?m.bg:"#E5E7EB"}`,
+                        borderLeft:`3px solid ${isMatch?m.bg:"#D1D5DB"}`}}>
+                        <span style={{fontSize:16,lineHeight:1,flexShrink:0,color:isMatch?"#15803D":"#EF4444",fontWeight:700}}>{isMatch?"✓":"✗"}</span>
+                        <span style={{background:isMatch?m.bg:"#F3F4F6",color:isMatch?m.text:"#6B7280",
+                          fontSize:10,fontWeight:700,padding:"2px 7px",borderRadius:3,flexShrink:0,whiteSpace:"nowrap"}}>
+                          #{i+1} {m.label}
+                        </span>
+                        <span style={{fontFamily:"monospace",fontSize:11,color:"#374151",flex:1,lineHeight:1.4}}>{chk.expr}</span>
+                        <span style={{fontSize:10,fontWeight:700,color:isMatch?m.bg:"#9CA3AF",flexShrink:0}}>
+                          {isMatch?"MATCH →":"skip"}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div style={{marginTop:10,padding:"12px 16px",borderRadius:8,background:SM[resultSc].bg,
+                  display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+                  <span style={{fontSize:13,fontWeight:900,color:SM[resultSc].text}}>Result:</span>
+                  <span style={{fontFamily:"monospace",fontSize:12,color:SM[resultSc].text,opacity:.9}}>
+                    BM%={bmP.toFixed(1)}%  Planned%={plP.toFixed(1)}%
+                  </span>
+                  <span style={{fontSize:12,color:SM[resultSc].text,opacity:.85}}>→ classified as</span>
+                  <span style={{background:"rgba(255,255,255,.25)",color:SM[resultSc].text,fontSize:13,fontWeight:900,
+                    padding:"3px 12px",borderRadius:5,border:"1px solid rgba(255,255,255,.35)"}}>
+                    {SM[resultSc].label}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* All rules reference */}
+          <div>
+            <div style={{fontSize:12,fontWeight:700,color:"#6B7280",textTransform:"uppercase",letterSpacing:".07em",marginBottom:10}}>
+              All classification rules
+            </div>
+            <div style={{display:"flex",flexDirection:"column",gap:7}}>
+              {RULES.map(({sc,priority,conds,why,action})=>{
+                const m=SM[sc];
+                return(
+                  <div key={sc} style={{border:`1px solid ${m.bg}30`,borderLeft:`4px solid ${m.bg}`,borderRadius:10,padding:"11px 14px",background:"#FAFAFA"}}>
+                    <div style={{display:"flex",alignItems:"flex-start",gap:10,flexWrap:"wrap"}}>
+                      <div style={{minWidth:195,flexShrink:0}}>
+                        <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:6}}>
+                          <span style={{fontSize:10,fontWeight:700,color:"#9CA3AF",background:"#F3F4F6",padding:"1px 6px",borderRadius:3}}>#{priority}</span>
+                          <span style={{background:m.bg,color:m.text,fontSize:11,fontWeight:700,padding:"3px 10px",borderRadius:5}}>{m.label}</span>
+                        </div>
+                        <div style={{display:"flex",flexDirection:"column",gap:3}}>
+                          {conds.map((c,i)=>(
+                            <span key={i} style={{fontFamily:"monospace",fontSize:10,background:"#1a1a1a",color:"#fff",
+                              padding:"2px 8px",borderRadius:4,display:"inline-block",alignSelf:"flex-start"}}>{c}</span>
+                          ))}
+                        </div>
+                      </div>
+                      <div style={{flex:1,minWidth:180}}>
+                        <div style={{fontSize:12,color:"#4B5563",lineHeight:1.6,marginBottom:4}}>
+                          <span style={{fontWeight:700,color:"#1a1a1a"}}>Why: </span>{why}
+                        </div>
+                        <div style={{fontSize:12,color:"#374151",lineHeight:1.5}}>
+                          <span style={{fontWeight:700,color:m.bg}}>→ </span>{action}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Settings note */}
+          <div style={{background:"#F0FDF4",border:"1px solid #BBF7D0",borderLeft:"4px solid #16A34A",borderRadius:10,padding:"1rem 1.25rem",display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,flexWrap:"wrap"}}>
+            <div style={{flex:1}}>
+              <div style={{fontSize:13,fontWeight:700,color:"#15803D",marginBottom:4}}>⚙ All percentages reflect your current threshold settings</div>
+              <div style={{fontSize:12,color:"#374151",lineHeight:1.7}}>
+                Every % value shown in this help page, including the live example above, uses your current settings. Change any threshold and all assets are reclassified instantly.
+              </div>
+            </div>
+            <button onClick={()=>{onClose();onOpenSettings();}} className="btn btn-primary"
+              style={{background:"#15803D",whiteSpace:"nowrap",flexShrink:0}}>
+              ⚙ Open Settings
+            </button>
+          </div>
+
+        </div>
+
+        <div style={{borderTop:"1px solid #F3F4F6",padding:"1rem 1.5rem",display:"flex",justifyContent:"flex-end",flexShrink:0}}>
+          <button onClick={onClose} className="btn btn-primary" style={{padding:"8px 24px"}}>Got it</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Main App ──────────────────────────────────────────────────────────────────
+// ── Settings Page ─────────────────────────────────────────────────────────────
+function SettingsPage({thresholds,setThresholds,lines,onBack}){
+  const setT=(key,val)=>setThresholds(t=>({...t,[key]:Math.max(0,Math.min(100,Number(val)||0))}));
+  const isCustom=JSON.stringify(thresholds)!==JSON.stringify(DEFAULT_THRESHOLDS);
+  const counts=useMemo(()=>{
+    if(!lines)return null;
+    const c=Object.fromEntries(SKEYS.map(k=>[k,0]));
+    lines.flatMap(l=>l.assets).forEach(a=>c[a.score]++);
+    const total=lines.flatMap(l=>l.assets).length;
+    return{c,total};
+  },[lines]);
+  const DEFS=[
+    {sc:"critical",   color:"#BE123C",
+     desc:"High breakdown maintenance. Reactive fire-fighting mode regardless of planned work.",
+     rules:[{key:"criticalBM",lbl:"BM ratio ≥",note:"Breakdowns make up at least this % of all work orders"}],
+     formula:(t)=>`IF BM% ≥ ${t.criticalBM}%  →  Critical`},
+    {sc:"ineffective",color:"#B45309",
+     desc:"High breakdowns despite high planned maintenance. PM is not preventing failures.",
+     rules:[{key:"ineffectiveBM",lbl:"BM ratio ≥",note:""},{key:"ineffectivePlanned",lbl:"AND Planned ratio >",note:"Both conditions must be true"}],
+     formula:(t)=>`IF BM% ≥ ${t.ineffectiveBM}%  AND  Planned% > ${t.ineffectivePlanned}%  →  Ineffective`},
+    {sc:"poor",       color:"#C2410C",
+     desc:"Moderate breakdown rate. Planned maintenance is lagging and needs improvement.",
+     rules:[{key:"poorBM",lbl:"BM ratio ≥",note:"Breakdowns are elevated but not yet Critical"}],
+     formula:(t)=>`IF BM% ≥ ${t.poorBM}%  →  Poor`},
+    {sc:"overkill",   color:"#374151",
+     desc:"Near-zero breakdowns but excessive planned work. Review if intervals are too frequent.",
+     rules:[{key:"excessiveBM",lbl:"BM ratio <",note:""},{key:"excessivePlanned",lbl:"AND Planned ratio >",note:"Both conditions must be true"}],
+     formula:(t)=>`IF BM% < ${t.excessiveBM}%  AND  Planned% > ${t.excessivePlanned}%  →  Excessive`},
+    {sc:"optimized",  color:"#0F766E",
+     desc:"Low breakdowns with strong planned maintenance. The target operating state.",
+     rules:[{key:"optimizedBM",lbl:"BM ratio <",note:""},{key:"optimizedPlanned",lbl:"AND Planned ratio >",note:"Both conditions must be true"}],
+     formula:(t)=>`IF BM% < ${t.optimizedBM}%  AND  Planned% > ${t.optimizedPlanned}%  →  Optimized`},
+    {sc:"balanced",   color:"#0E7490",
+     desc:"Reasonable mix of planned and reactive work. Does not match any other rule.",
+     rules:null,formula:null},
+  ];
+  return(
+    <div style={{maxWidth:860,margin:"0 auto"}}>
+      {/* Page title */}
+      <div style={{display:"flex",alignItems:"flex-start",gap:14,marginBottom:"1.5rem",flexWrap:"wrap"}}>
+        <div style={{flex:1}}>
+          <h2 style={{fontSize:22,fontWeight:900,color:"#1a1a1a",margin:"0 0 4px"}}>⚙ Classification Settings</h2>
+          <p style={{fontSize:13,color:"#888",margin:0}}>Adjust the thresholds used to classify each asset. Changes apply live. The heatmap, KPIs and reports all update instantly.</p>
+        </div>
+        {isCustom&&<button onClick={()=>setThresholds(DEFAULT_THRESHOLDS)}
+          style={{padding:"7px 16px",border:"1px solid #fbbf24",borderRadius:8,background:"#fffbeb",
+            cursor:"pointer",fontSize:12,color:"#92400e",fontWeight:600,whiteSpace:"nowrap"}}>
+          ↩ Reset to defaults
+        </button>}
+      </div>
+
+      {/* Priority note */}
+      <div style={{background:"#EFF6FF",border:"1px solid #BFDBFE",borderRadius:10,padding:"12px 16px",marginBottom:"1.5rem"}}>
+        <div style={{fontSize:12,fontWeight:700,color:"#0052FF",marginBottom:6}}>Classification priority order · first match wins</div>
+        <div style={{display:"flex",gap:5,flexWrap:"wrap",alignItems:"center"}}>
+          {["critical","ineffective","poor","overkill","optimized","balanced"].map((s,i,arr)=>[
+            <span key={s} style={{fontSize:11,fontWeight:700,padding:"3px 10px",borderRadius:4,background:SM[s].bg,color:"#fff"}}>{SM[s].label}</span>,
+            i<arr.length-1&&<span key={s+"a"} style={{color:"#93C5FD",fontSize:16,fontWeight:700,lineHeight:1}}>→</span>
+          ])}
+        </div>
+        <p style={{fontSize:11,color:"#3B82F6",margin:"6px 0 0"}}>Each asset is tested in this order. The first matching rule determines the classification. Balanced is the catch-all with no threshold.</p>
+      </div>
+
+      {/* Classification cards */}
+      <div style={{display:"flex",flexDirection:"column",gap:10,marginBottom:"1.5rem"}}>
+        {DEFS.map(({sc,color,desc,rules,formula})=>{
+          const m=SM[sc];
+          const cnt=counts?counts.c[sc]:null;
+          const pct=counts?((cnt/counts.total)*100).toFixed(0):null;
+          return(
+            <div key={sc} style={{background:"#fff",border:"1px solid #e5e5e5",
+              borderLeft:`5px solid ${color}`,borderRadius:10,padding:"14px 18px",
+              display:"grid",gridTemplateColumns:"170px 1fr",gap:20,alignItems:"start"}}>
+
+              {/* Left: label + live count */}
+              <div>
+                <div style={{display:"inline-block",fontSize:12,fontWeight:800,color:"#fff",background:color,
+                  padding:"2px 10px",borderRadius:4,marginBottom:8}}>{m.label}</div>
+                {counts!=null&&(
+                  <div style={{marginBottom:6}}>
+                    <span style={{fontSize:30,fontWeight:900,color:"#1a1a1a",lineHeight:1}}>{cnt}</span>
+                    <span style={{fontSize:11,color:"#aaa",marginLeft:6}}>assets · {pct}%</span>
+                  </div>
+                )}
+                <div style={{fontSize:11,color:"#999",lineHeight:1.5}}>{desc}</div>
+              </div>
+
+              {/* Right: inputs or no-threshold note */}
+              <div>
+                {rules?(
+                  <div>
+                    <div style={{fontSize:10,fontWeight:700,color:"#bbb",textTransform:"uppercase",
+                      letterSpacing:".07em",marginBottom:10}}>Threshold conditions (all must match)</div>
+                    <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                      {rules.map(({key,lbl,note},ri)=>(
+                        <div key={key} style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+                          {ri>0&&<span style={{fontSize:11,fontWeight:700,color:"#aaa",minWidth:32}}>AND</span>}
+                          <span style={{fontSize:13,color:"#444",minWidth:155,flexShrink:0}}>{lbl}</span>
+                          <div style={{display:"flex",alignItems:"center",gap:3,
+                            background:"#f8f8f8",border:`2px solid ${color}44`,borderRadius:9,padding:"4px 8px"}}>
+                            <button onClick={()=>setT(key,Math.max(0,(thresholds[key]||0)-1))}
+                              style={{width:24,height:24,border:"none",borderRadius:5,background:color+"22",
+                                cursor:"pointer",fontSize:15,color,fontWeight:900,lineHeight:1,padding:0}}>−</button>
+                            <input type="number" min="0" max="100" value={thresholds[key]}
+                              onChange={e=>setT(key,e.target.value)}
+                              style={{width:54,border:"none",background:"transparent",fontSize:20,
+                                fontWeight:800,textAlign:"center",outline:"none",fontFamily:"inherit",color}}/>
+                            <button onClick={()=>setT(key,Math.min(100,(thresholds[key]||0)+1))}
+                              style={{width:24,height:24,border:"none",borderRadius:5,background:color+"22",
+                                cursor:"pointer",fontSize:15,color,fontWeight:900,lineHeight:1,padding:0}}>+</button>
+                            <span style={{fontSize:13,fontWeight:700,color:"#aaa",marginLeft:2}}>%</span>
+                          </div>
+                          {note&&<span style={{fontSize:11,color:"#bbb",fontStyle:"italic"}}>{note}</span>}
+                        </div>
+                      ))}
+                    </div>
+                    {formula&&<div style={{marginTop:10,fontSize:11,color:color,background:color+"0d",
+                      borderRadius:6,padding:"7px 12px",fontFamily:"monospace",fontWeight:600,
+                      border:`1px solid ${color}22`}}>
+                      {formula(thresholds)}
+                    </div>}
+                  </div>
+                ):(
+                  <div style={{background:"#f9f9f9",borderRadius:8,padding:"14px 16px",
+                    border:"1px solid #f0f0f0",height:"100%",display:"flex",alignItems:"center"}}>
+                    <div>
+                      <div style={{fontSize:12,fontWeight:700,color:"#aaa",marginBottom:4}}>No threshold (catch-all)</div>
+                      <div style={{fontSize:11,color:"#bbb",lineHeight:1.5}}>
+                        Any asset not matching Critical, Ineffective, Poor, Excessive, or Optimized is classified as Balanced automatically. Nothing to configure here.
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Bottom bar */}
+      <div style={{display:"flex",gap:12,alignItems:"center",padding:"14px 0",borderTop:"1px solid #eee",flexWrap:"wrap"}}>
+        <button onClick={onBack} style={{padding:"10px 24px",background:"#0052FF",color:"#fff",border:"none",
+          borderRadius:8,cursor:"pointer",fontSize:13,fontWeight:700}}>
+          ← Back to Heatmap
+        </button>
+        {isCustom&&<>
+          <span style={{fontSize:11,color:"#f59e0b",fontWeight:600}}>⚠ Custom thresholds are active</span>
+          <button onClick={()=>setThresholds(DEFAULT_THRESHOLDS)}
+            style={{padding:"8px 16px",background:"#fff",color:"#777",border:"1px solid #e0e0e0",
+              borderRadius:8,cursor:"pointer",fontSize:12}}>
+            ↩ Reset to defaults
+          </button>
+        </>}
+      </div>
+    </div>
+  );
+}
+
+function App(){
+  const stored=useMemo(()=>{try{return JSON.parse(localStorage.getItem("ib_user")||sessionStorage.getItem("ib_user")||"null");}catch{return null;}},[]);
+  const[user,setUser]=useState(stored);
+  const[isDemoMode,setIsDemoMode]=useState(true);
+  const[uploadedRawLines,setUploadedRawLines]=useState(null);
+  const[thresholds,setThresholds]=useState(DEFAULT_THRESHOLDS);
+  const[showThresholds,setShowThresholds]=useState(false);
+  const[view,setView]=useState("heatmap");
+  const[actionData,setActionData]=useState({});
+  const[demoActionData,setDemoActionData]=useState({});
+  const[err,setErr]=useState("");
+  const[loading,setLoading]=useState(false);
+  const[exporting,setExporting]=useState(false);
+  const[activeLines,setActiveLines]=useState([]);
+  const[selectedId,setSelectedId]=useState(null);
+  const[filterScores,setFilterScores]=useState([]);
+  const[showHelp,setShowHelp]=useState(false);
+  const[isDemoHidden,setIsDemoHidden]=useState(false);
+  const fileRef=useRef(null);
+
+  const dummyRawLines=useMemo(buildDummyLines,[]);
+  const rawLines=isDemoMode?dummyRawLines:uploadedRawLines;
+
+  const logout=()=>{localStorage.removeItem("ib_user");sessionStorage.removeItem("ib_user");setUser(null);setIsDemoMode(true);setUploadedRawLines(null);};
+
+  const handleFile=async e=>{
+    const f=e.target.files[0];if(!f)return;
+    setLoading(true);setErr("");
+    try{const parsed=await parseUploadedFile(f);setUploadedRawLines(parsed);setIsDemoMode(false);setIsDemoHidden(false);setActiveLines([]);setSelectedId(null);setFilterScores([]);}
+    catch(ex){setErr(ex.message);}
+    finally{setLoading(false);e.target.value="";}};
+
+  const curActionData=isDemoMode?demoActionData:actionData;
+  const setCurActionData=isDemoMode?setDemoActionData:setActionData;
+  const handleExport=async()=>{
+    setExporting(true);try{await downloadReport(lines,calcStats(lines.flatMap(l=>l.assets)),curActionData);}
+    catch(ex){setErr("Export failed: "+ex.message);}finally{setExporting(false);};};
+
+  const lines=useMemo(()=>rawLines?reclassifyLines(rawLines,thresholds):null,[rawLines,thresholds]);
+  const lineData=useMemo(()=>!lines?[]:activeLines.length===0?lines:lines.filter(l=>activeLines.includes(l.id)),[lines,activeLines]);
+  const allAssets=useMemo(()=>lineData.flatMap(l=>l.assets),[lineData]);
+  const stats=useMemo(()=>calcStats(allAssets),[allAssets]);
+  const selected=selectedId?allAssets.find(a=>a.assetId===selectedId):null;
+  const pct=n=>stats.totalWO>0?((n/stats.totalWO)*100).toFixed(1):"0.0";
+  const COLS=15;
+  const isCustomThresholds=JSON.stringify(thresholds)!==JSON.stringify(DEFAULT_THRESHOLDS);
+  const setT=(key,val)=>setThresholds(t=>({...t,[key]:Math.max(0,Math.min(100,Number(val)||0))}));
+
+  if(!user)return<LoginPage onLogin={setUser}/>;
+
+  return(
+    <div style={{minHeight:"100vh",display:"flex",flexDirection:"column",background:"#f0f4fb"}}>
+
+      {/* ── Header */}
+      <header className="app-header" style={{background:"#0052FF",color:"#fff",padding:"0 1.5rem",minHeight:60,display:"flex",alignItems:"center",gap:12,boxShadow:"0 2px 12px rgba(0,0,0,.3)",position:"sticky",top:0,zIndex:100,flexWrap:"wrap"}}>
+        <div style={{marginRight:8}}>
+          <div style={{fontSize:18,fontWeight:900,letterSpacing:"-0.5px"}}>IntelBeyond</div>
+          <div style={{fontSize:9,opacity:.7,letterSpacing:".1em",textTransform:"uppercase"}}>Asset Maintenance Intelligence</div>
+        </div>
+        <div style={{flex:1}}/>
+        <input type="file" accept=".xlsx,.xls,.csv" ref={fileRef} style={{display:"none"}} onChange={handleFile}/>
+        <button className="btn btn-ghost" onClick={downloadTemplate}>⬇ Template</button>
+        <button className="btn btn-ghost" onClick={downloadDemoData}>⬇ Demo Data</button>
+        <button className="btn btn-ghost" onClick={()=>fileRef.current?.click()} disabled={loading}>{loading?"Uploading…":"⬆ Upload Data"}</button>
+        {lines&&<button className="btn btn-white" onClick={handleExport} disabled={exporting}>{exporting?"Exporting…":"⬇ Download Report"}</button>}
+        <button className="btn btn-ghost" onClick={()=>setShowHelp(true)} title="How classifications are calculated"
+          style={{padding:"6px 12px",fontSize:14,lineHeight:1}}>ⓘ Help</button>
+        {lines&&<button className="btn btn-ghost" onClick={()=>setView(v=>v==="actions"?"heatmap":"actions")}
+          style={{background:view==="actions"?"rgba(255,255,255,.25)":"rgba(255,255,255,.1)"}}>
+          {view==="actions"?"◇ Dashboard":"☰ Action List"}
+        </button>}
+        {lines&&<button className="btn btn-ghost" onClick={()=>setView(v=>v==="settings"?"heatmap":"settings")}
+          style={{background:view==="settings"?"rgba(255,255,255,.25)":"rgba(255,255,255,.1)"}}>
+          ⚙ Settings
+        </button>}
+        {/* Pure demo (no real data yet): hide/show toggle */}
+        {isDemoMode&&!uploadedRawLines&&<button onClick={()=>setIsDemoHidden(h=>!h)}
+          style={{display:"inline-flex",alignItems:"center",gap:6,padding:"5px 14px",
+            border:"1px solid rgba(255,255,255,.5)",borderRadius:20,
+            background:isDemoHidden?"rgba(255,255,255,.28)":"rgba(255,255,255,.12)",
+            cursor:"pointer",fontSize:11,fontWeight:700,color:"#fff",transition:"background .15s"}}>
+          {isDemoHidden?"◈ Show Demo":"⊟ Hide Demo"}
+        </button>}
+        {/* Real data exists, currently previewing demo: back button + badge */}
+        {isDemoMode&&uploadedRawLines&&<>
+          <span style={{fontSize:10,fontWeight:700,letterSpacing:".06em",
+            background:"rgba(255,255,255,.18)",border:"1px solid rgba(255,255,255,.4)",
+            borderRadius:20,padding:"3px 10px",color:"rgba(255,255,255,.85)"}}>DEMO PREVIEW</span>
+          <button onClick={()=>{setIsDemoMode(false);setView("heatmap");}}
+            style={{display:"inline-flex",alignItems:"center",gap:6,padding:"5px 14px",
+              border:"1px solid rgba(255,255,255,.55)",borderRadius:20,
+              background:"rgba(255,255,255,.22)",cursor:"pointer",fontSize:11,fontWeight:700,color:"#fff"}}>
+            ← Back to My Data
+          </button>
+        </>}
+        {/* Real data exists, showing real data: offer demo peek */}
+        {!isDemoMode&&uploadedRawLines&&<button
+          onClick={()=>{setIsDemoMode(true);setIsDemoHidden(false);setActiveLines([]);setSelectedId(null);setFilterScores([]);setView("heatmap");}}
+          style={{display:"inline-flex",alignItems:"center",gap:6,padding:"5px 14px",
+            border:"1px solid rgba(255,255,255,.4)",borderRadius:20,
+            background:"rgba(255,255,255,.1)",cursor:"pointer",fontSize:11,fontWeight:700,color:"rgba(255,255,255,.8)"}}>
+          ◈ Show Demo
+        </button>}
+        <div style={{fontSize:12,opacity:.8,borderLeft:"1px solid rgba(255,255,255,.3)",paddingLeft:12}}>
+          {user.name} · <button onClick={logout} style={{background:"none",border:"none",color:"rgba(255,255,255,.75)",fontSize:12,cursor:"pointer",padding:0,textDecoration:"underline"}}>Sign out</button>
+        </div>
+      </header>
+
+      {/* ── Error bar */}
+      {err&&<div style={{background:"#FCEBEB",color:"#A32D2D",padding:"10px 1.5rem",fontSize:13,display:"flex",alignItems:"center",justifyContent:"space-between",borderBottom:"1px solid #F7C1C1"}}>
+        ⚠ {err}
+        <button onClick={()=>setErr("")} style={{background:"none",border:"none",color:"#A32D2D",cursor:"pointer",fontSize:20,lineHeight:1}}>✕</button>
+      </div>}
+
+      <main className="app-main" style={{flex:1,maxWidth:1100,width:"100%",margin:"0 auto",padding:"1.5rem"}}>
+        {(isDemoMode&&isDemoHidden&&view==="heatmap")?(
+          <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",
+            minHeight:"65vh",gap:14,textAlign:"center",color:"#aaa"}}>
+            <div style={{fontSize:52,opacity:.2,lineHeight:1}}>◈</div>
+            <div style={{fontSize:17,fontWeight:700,color:"#888"}}>Demo dashboard hidden</div>
+            <p style={{fontSize:13,margin:0,maxWidth:340,lineHeight:1.6}}>
+              Click <strong style={{color:"#555"}}>Show Demo</strong> in the header to restore the demo dashboard,
+              or <strong style={{color:"#555"}}>⬆ Upload Data</strong> to load your own data.
+            </p>
+            <button onClick={()=>setIsDemoHidden(false)}
+              style={{marginTop:8,padding:"9px 22px",background:"#0052FF",color:"#fff",border:"none",
+                borderRadius:8,cursor:"pointer",fontSize:13,fontWeight:700}}>
+              ◈ Show Demo Dashboard
+            </button>
+          </div>
+        ):!lines?(
+          <EmptyState onUpload={()=>fileRef.current?.click()} onTemplate={downloadTemplate}/>
+        ):view==="actions"?(
+          <div>
+            <div style={{marginBottom:"1rem"}}>
+              <h2 style={{fontSize:20,fontWeight:900,color:"#1a1a1a",margin:"0 0 4px"}}>Action List</h2>
+              <p style={{fontSize:13,color:"#999",margin:0}}>Assign actions, responsible persons and due dates to assets. Changes are saved for this session.</p>
+            </div>
+            <ActionList lines={lines} actionData={curActionData} setActionData={setCurActionData}/>
+          </div>
+        ):view==="settings"?(
+          <SettingsPage thresholds={thresholds} setThresholds={setThresholds} lines={lines} onBack={()=>setView("heatmap")}/>
+        ):(()=>{return(
+          <div>
+            <div style={{marginBottom:"1.25rem"}}>
+              <h2 style={{fontSize:20,fontWeight:900,color:"#1a1a1a",margin:"0 0 4px"}}>Maintenance work order heatmap</h2>
+              <p style={{fontSize:13,color:"#999",margin:0}}>{stats.total} assets · {stats.totalWO.toLocaleString()} work orders · grouped by maintenance health · click any cell to inspect</p>
+            </div>
+
+            {/* Line tabs */}
+            <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:"1rem"}}>
+              {[{id:"ALL",name:"All lines",count:stats.total},...lines].map(l=>{
+                const a=l.id==="ALL"?activeLines.length===0:activeLines.includes(l.id);
+                return<button key={l.id} onMouseDown={e=>{if(e.shiftKey)e.preventDefault();}} onClick={e=>{
+                  setSelectedId(null);
+                  if(l.id==="ALL"){setActiveLines([]);}
+                  else if(e.shiftKey){
+                    setActiveLines(prev=>prev.includes(l.id)?prev.filter(x=>x!==l.id):[...prev,l.id]);
+                  }else{
+                    setActiveLines(prev=>prev.length===1&&prev[0]===l.id?[]:[l.id]);
+                  }
+                }}
+                  style={{padding:"6px 14px",fontSize:13,fontWeight:a?700:400,background:a?"#0052FF":"#fff",
+                    color:a?"#fff":"#555",border:`1px solid ${a?"#1058C0":"#ddd"}`,borderRadius:7,cursor:"pointer"}}>
+                  {l.name} <span style={{fontSize:11,opacity:.7}}>({l.count})</span>
+                </button>;})}
+            </div>
+
+            {/* KPI cards */}
+            <div className="kpi-grid" style={{display:"grid",gridTemplateColumns:"repeat(6,1fr)",gap:8,marginBottom:"1rem"}}>
+              {SKEYS.map(sc=>{const m=SM[sc],a=filterScores.includes(sc);
+                return<div key={sc} onMouseDown={e=>{if(e.shiftKey)e.preventDefault();}} onClick={e=>{
+                  if(e.shiftKey){
+                    setFilterScores(prev=>prev.includes(sc)?prev.filter(x=>x!==sc):[...prev,sc]);
+                  }else{
+                    setFilterScores(prev=>prev.length===1&&prev[0]===sc?[]:[sc]);
+                  }
+                }}
+                  style={{background:a?m.bg+"18":"#fff",borderRadius:9,border:`1px solid ${a?m.bg:"#e5e5e5"}`,
+                    borderLeft:`4px solid ${m.bg}`,padding:"10px 12px",cursor:"pointer",transition:"background .15s",userSelect:"none"}}>
+                  <div style={{fontSize:24,fontWeight:900,color:"#1a1a1a",lineHeight:1.1}}>{stats.counts[sc]}</div>
+                  <div style={{fontSize:11,fontWeight:700,color:m.bg,marginTop:2}}>{m.label}</div>
+                  <div style={{fontSize:10,color:"#bbb",marginTop:2}}>{((stats.counts[sc]/stats.total)*100).toFixed(0)}% of assets</div>
+                </div>;})}
+            </div>
+
+            {/* ── Classification thresholds panel */}
+            <div style={{marginBottom:"1rem"}}>
+              <button onClick={()=>setShowThresholds(v=>!v)}
+                style={{background:"none",border:"none",cursor:"pointer",display:"flex",alignItems:"center",
+                  gap:6,fontSize:12,fontWeight:600,color:"#555",padding:0}}>
+                <span>{showThresholds?"▾":"▸"}</span>
+                Classification thresholds
+                {isCustomThresholds&&<span style={{fontSize:10,background:"#0052FF",color:"#fff",
+                  padding:"1px 7px",borderRadius:3,marginLeft:4}}>Customised</span>}
+              </button>
+              {showThresholds&&(
+                <div style={{marginTop:10,background:"#fff",border:"1px solid #e5e5e5",borderRadius:10,padding:"1rem 1.25rem"}}>
+                  <p style={{fontSize:12,color:"#999",margin:"0 0 12px"}}>
+                    Assets are scored in priority order: <strong>Critical → Ineffective PM → Poor → Excessive → Optimized → Balanced</strong>. Changes apply live.
+                  </p>
+                  <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(290px,1fr))",gap:8}}>
+                    {[
+                      {sc:"critical",    label:"Critical",      color:"#BE123C",
+                        rows:[{key:"criticalBM",       lbl:"BM ≥",unit:"%",desc:"of total WOs"}]},
+                      {sc:"ineffective", label:"Ineffective",  color:"#B45309",
+                        rows:[{key:"ineffectiveBM",    lbl:"BM ≥",unit:"%"},{key:"ineffectivePlanned",lbl:"AND Planned >",unit:"%"}]},
+                      {sc:"poor",        label:"Poor",          color:"#C2410C",
+                        rows:[{key:"poorBM",           lbl:"BM ≥",unit:"%",desc:"of total WOs"}]},
+                      {sc:"optimized",label:"Optimized",  color:"#0F766E",
+                        rows:[{key:"optimizedBM",    lbl:"BM <",unit:"%"},{key:"optimizedPlanned",lbl:"Planned >",unit:"%"}]},
+                      {sc:"overkill", label:"Excessive",  color:"#374151",
+                        rows:[{key:"excessiveBM",    lbl:"BM <",unit:"%"},{key:"excessivePlanned",lbl:"Planned >",unit:"%"}]},
+                      {sc:"balanced", label:"Balanced",   color:"#0E7490", rows:null},
+                    ].map(({sc,label,color,rows})=>(
+                      <div key={sc} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 12px",
+                        background:"#fafafa",borderRadius:8,border:`1px solid ${color}30`,borderLeft:`3px solid ${color}`}}>
+                        <span style={{fontSize:12,fontWeight:700,color,minWidth:72,flexShrink:0}}>{label}</span>
+                        {rows?rows.map(({key,lbl,unit,desc})=>(
+                          <div key={key} style={{display:"flex",alignItems:"center",gap:4,fontSize:12,flexWrap:"wrap"}}>
+                            <span style={{color:"#888"}}>{lbl}</span>
+                            <input type="number" min="0" max="100" value={thresholds[key]}
+                              onChange={e=>setT(key,e.target.value)}
+                              style={{width:48,padding:"3px 6px",border:"1.5px solid #ddd",borderRadius:5,
+                                fontSize:12,fontWeight:700,textAlign:"center",outline:"none",fontFamily:"inherit"}}/>
+                            <span style={{color:"#bbb"}}>{unit}{desc?` ${desc}`:""}</span>
+                          </div>
+                        )):<span style={{fontSize:11,color:"#aaa",fontStyle:"italic"}}>Everything else (no threshold)</span>}
+                      </div>
+                    ))}
+                  </div>
+                  {isCustomThresholds&&(
+                    <button onClick={()=>setThresholds(DEFAULT_THRESHOLDS)}
+                      style={{marginTop:10,fontSize:11,color:"#999",background:"none",
+                        border:"1px solid #e0e0e0",borderRadius:5,padding:"4px 12px",cursor:"pointer"}}>
+                      Reset to defaults
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Filter chip */}
+            {filterScores.length>0&&<div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:"0.75rem"}}>
+              {filterScores.map(sc=><div key={sc} style={{fontSize:12,color:"#444",padding:"6px 12px",background:"#fff",border:`1px solid ${SM[sc].bg}`,borderRadius:7,display:"inline-flex",alignItems:"center",gap:8}}>
+                <span style={{fontWeight:700,color:SM[sc].bg}}>{SM[sc].label}</span>
+                <button onClick={()=>setFilterScores(prev=>prev.filter(x=>x!==sc))} style={{background:"none",border:"none",color:"#ccc",cursor:"pointer",fontSize:14,lineHeight:1,padding:0}}>✕</button>
+              </div>)}
+              {filterScores.length>1&&<button onClick={()=>setFilterScores([])} style={{fontSize:11,color:"#999",background:"none",border:"1px solid #e0e0e0",borderRadius:5,padding:"4px 10px",cursor:"pointer"}}>Clear all</button>}
+            </div>}
+
+            {/* Gradient legend */}
+            <div style={{marginBottom:"1.25rem"}}>
+              <div style={{height:12,borderRadius:6,marginBottom:7,background:"linear-gradient(to right,#B91C1C 0%,#A16207 20%,#BE185D 35%,#1D4ED8 50%,#96E6AA 65%,#15803D 78%,#AFB9C3 86%,#374151 100%)"}}/>
+              <div style={{display:"flex",justifyContent:"space-between"}}>
+                {SKEYS.map(sc=><div key={sc} style={{display:"flex",alignItems:"center",gap:5}}>
+                  <div style={{width:9,height:9,background:SM[sc].bg,borderRadius:2}}/>
+                  <span style={{fontSize:11,color:"#888"}}>{SM[sc].label}</span>
+                </div>)}
+              </div>
+            </div>
+
+            {/* Heatmap grids */}
+            {lineData.map(line=>{
+              const vis=line.assets.map(a=>({...a,hidden:filterScores.length>0&&!filterScores.includes(a.score)}));
+              return(
+                <div key={line.id} style={{marginBottom:"1.5rem"}}>
+                  <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:8,flexWrap:"wrap"}}>
+                    <span style={{fontSize:14,fontWeight:700,color:"#1a1a1a"}}>{line.name}</span>
+                    <span style={{fontSize:12,color:"#aaa"}}>{line.count} assets</span>
+                    <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
+                      {SKEYS.filter(s=>line.assets.some(a=>a.score===s)).map(s=>(
+                        <span key={s} style={{fontSize:10,fontWeight:700,padding:"1px 7px",borderRadius:3,background:SM[s].bg+"22",color:SM[s].bg,border:`1px solid ${SM[s].bg}44`}}>
+                          {SM[s].label[0]} {line.assets.filter(a=>a.score===s).length}
+                        </span>))}
+                    </div>
+                  </div>
+                  <div style={{display:"grid",gridTemplateColumns:`repeat(${Math.min(COLS,line.count)},1fr)`,gap:3,
+                    background:"#e4e8f4",border:"1px solid #ccd3f0",borderRadius:12,padding:10}}>
+                    {vis.map(a=>{const isSel=selectedId===a.assetId;const color=getColor(a.score,a.groupIdx,a.groupSize);
+                      return<div key={a.assetId}
+                        title={`${a.assetId}${a.desc?" · "+a.desc:""} | BM:${a.bm} PM:${a.pm} CM:${a.cm} IM:${a.im} | ${SM[a.score].label}`}
+                        onClick={()=>setSelectedId(isSel?null:a.assetId)}
+                        style={{aspectRatio:"1",background:a.hidden?"#d5d5d5":color,
+                          border:isSel?"2px solid #1a1a1a":`1px solid ${a.hidden?"#ccc":color}`,
+                          borderRadius:4,cursor:"pointer",opacity:a.hidden?.12:1,
+                          transform:isSel?"scale(1.28)":"scale(1)",transition:"transform .1s,opacity .15s",
+                          position:"relative",zIndex:isSel?2:1}}/>;
+                    })}
+                  </div>
+                </div>);})}
+
+            {/* Asset detail panel */}
+            {selected&&(()=>{const m=SM[selected.score];const ld=lines.find(l=>l.assets.some(a=>a.assetId===selected.assetId));return(
+              <div style={{background:"#fff",border:`1px solid #ddd`,borderLeft:`4px solid ${m.bg}`,borderRadius:12,padding:"1rem 1.25rem",marginBottom:"1.25rem"}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:12}}>
+                  <div>
+                    <div style={{fontSize:15,fontWeight:700,color:"#1a1a1a"}}>Asset {selected.assetId}</div>
+                    {selected.desc&&<div style={{fontSize:13,color:"#666",marginTop:2}}>{selected.desc}</div>}
+                    <div style={{fontSize:12,color:"#aaa",marginTop:2}}>{ld?.name} · {selected.total} total work orders</div>
+                  </div>
+                  <div style={{background:m.bg,color:m.text,fontSize:11,fontWeight:700,padding:"5px 12px",borderRadius:6}}>{m.label}</div>
+                </div>
+                <div className="detail-wom" style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8,marginBottom:12}}>
+                  {WOM.map(({key,label,full,color})=>(
+                    <div key={key} style={{background:"#f9f9f9",borderRadius:8,borderTop:`3px solid ${color}`,padding:"10px 12px"}}>
+                      <div style={{fontSize:24,fontWeight:800,color:"#1a1a1a"}}>{selected[key]}</div>
+                      <div style={{fontSize:11,fontWeight:700,color,marginTop:2}}>{label}</div>
+                      <div style={{fontSize:10,color:"#bbb",lineHeight:1.3}}>{full}</div>
+                    </div>))}
+                </div>
+                <div style={{height:8,background:"#eee",borderRadius:4,overflow:"hidden",display:"flex"}}>
+                  {WOM.map(({key,color})=>{const w=selected.total?(selected[key]/selected.total*100):0;
+                    return w>0?<div key={key} style={{width:`${w.toFixed(1)}%`,background:color,height:"100%"}}/>:null;})}
+                </div>
+                <div style={{display:"flex",gap:16,marginTop:7,flexWrap:"wrap",alignItems:"center"}}>
+                  <span style={{fontSize:11,color:"#666"}}>BM ratio: <strong style={{color:"#E24B4A"}}>{(selected.bmRatio*100).toFixed(0)}%</strong></span>
+                  <span style={{fontSize:11,color:"#666"}}>Planned ratio: <strong style={{color:"#1D9E75"}}>{(selected.plannedRatio*100).toFixed(0)}%</strong></span>
+                  <span style={{fontSize:11,color:"#bbb",fontStyle:"italic"}}>{m.desc}</span>
+                </div>
+              </div>);})()}
+
+            {/* WO distribution summary */}
+            <div className="card">
+              <div style={{fontSize:13,fontWeight:700,color:"#333",marginBottom:14}}>
+                Work order distribution · {activeLines.length===0?"all lines":activeLines.length===1?lines.find(l=>l.id===activeLines[0])?.name:activeLines.length+" lines"}
+              </div>
+              <div className="wo-dist-grid" style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"10px 28px",marginBottom:16}}>
+                {WOM.map(({key,label,full,color})=>{
+                  const cnt=stats[`total${key.toUpperCase()}`];const w=parseFloat(pct(cnt));
+                  return<div key={key}>
+                    <div style={{display:"flex",justifyContent:"space-between",marginBottom:5}}>
+                      <span style={{fontSize:12,color:"#666"}}><strong style={{color}}>{label}</strong> · {full}</span>
+                      <span style={{fontSize:12,fontWeight:700,color:"#1a1a1a"}}>{cnt.toLocaleString()} <span style={{fontWeight:400,color:"#ccc"}}>({pct(cnt)}%)</span></span>
+                    </div>
+                    <div style={{height:6,background:"#eee",borderRadius:3,overflow:"hidden"}}>
+                      <div style={{width:`${w.toFixed(1)}%`,background:color,height:"100%",borderRadius:3}}/>
+                    </div>
+                  </div>;})}
+              </div>
+              <div style={{padding:"12px 16px",background:"#f9f9f9",border:"1px solid #eee",borderRadius:9,display:"flex",gap:24,flexWrap:"wrap"}}>
+                {[{v:`${pct(stats.totalBM)}%`,l:"Reactive (BM) ratio",c:"#E24B4A"},
+                  {v:`${(100-parseFloat(pct(stats.totalBM))).toFixed(1)}%`,l:"Planned ratio",c:"#1D9E75"},
+                  {v:`${stats.counts.critical+stats.counts.ineffective+stats.counts.poor}`,l:"Assets needing attention",c:"#E24B4A"},
+                  {v:`${stats.counts.overkill}`,l:"Excessive candidates",c:"#378ADD"},
+                ].map(({v,l,c},i)=><div key={i} style={{display:"flex",alignItems:"center",gap:20}}>
+                  {i>0&&<div style={{width:1,height:36,background:"#e5e5e5"}}/>}
+                  <div><div style={{fontSize:22,fontWeight:900,color:c}}>{v}</div>
+                  <div style={{fontSize:11,color:"#aaa"}}>{l}</div></div>
+                </div>)}
+              </div>
+            </div>
+          </div>
+        );})()}
+      </main>
+
+      <footer style={{textAlign:"center",padding:"1.25rem",fontSize:11,color:"#ccc",borderTop:"1px solid #e5e5e5",background:"#fff"}}>
+        © 2025 IntelBeyond · Asset Maintenance Intelligence Platform · Confidential
+      </footer>
+
+      {showHelp&&<HelpModal onClose={()=>setShowHelp(false)} thresholds={thresholds} onOpenSettings={()=>{setShowHelp(false);setView("settings");}}/>}
+    </div>);}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>
