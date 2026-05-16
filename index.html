@@ -1070,9 +1070,13 @@ function App(){
         {lines&&<button className="btn btn-white" onClick={handleExport} disabled={exporting}>{exporting?"Exporting…":"⬇ Download Report"}</button>}
         <button className="btn btn-ghost" onClick={()=>setShowHelp(true)} title="How classifications are calculated"
           style={{padding:"6px 12px",fontSize:14,lineHeight:1}}>ⓘ Help</button>
-        {lines&&<button className="btn btn-ghost" onClick={()=>setView(v=>v==="actions"?"heatmap":"actions")}
+        {lines&&<button className="btn btn-ghost" onClick={()=>setView("heatmap")}
+          style={{background:view==="heatmap"?"rgba(255,255,255,.25)":"rgba(255,255,255,.1)"}}>
+          ◇ Dashboard
+        </button>}
+        {lines&&<button className="btn btn-ghost" onClick={()=>setView("actions")}
           style={{background:view==="actions"?"rgba(255,255,255,.25)":"rgba(255,255,255,.1)"}}>
-          {view==="actions"?"◇ Dashboard":"☰ Action List"}
+          ☰ Action List
         </button>}
         {lines&&<button className="btn btn-ghost" onClick={()=>setView(v=>v==="settings"?"heatmap":"settings")}
           style={{background:view==="settings"?"rgba(255,255,255,.25)":"rgba(255,255,255,.1)"}}>
